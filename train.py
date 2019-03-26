@@ -6,31 +6,31 @@ import torch
 from torch import nn, optim
 from tensorboardX import SummaryWriter
 
+import evaluate
 from model.data import SQuAD
 from model.model import BiDAF
 
 
-class MovingAverage:
-    def __init__(self, decay_rate=0.999):
-        self.decay_rate = decay_rate
+class WeightDict:
+    def __init__(self, ):
         self.weights_dict = dict()
 
-    def init(self, name, val):
+    def put(self, name, val):
         self.weights_dict[name] = val.clone()
 
     def get(self, name):
         return self.weights_dict[name]
 
-    def update(self, name, val):
-        self.weights_dict[name] *= self.decay_rate
-        self.weights_dict[name] += (1-self.decay_rate) * val.clone()
+    def ema_update(self, name, val, decay_rate=0.999):
+        self.weights_dict[name] *= decay_rate
+        self.weights_dict[name] += (1-decay_rate) * val.clone()
 
 
 def train(data, model, args):
-    ma_dict = MovingAverage()  # moving averages of all weights
+    weight_dict = WeightDict()  # moving averages of all weights
     for name, param in model.named_parameters():
         if param.requires_grad:
-            ma_dict.init(name, param.data)
+            weight_dict.put(name, param.data)
 
     optimizer = optim.Adagrad(filter(lambda p: p.requires_grad, model.parameters()),
                               lr=args.learning_rate)
@@ -58,13 +58,13 @@ def train(data, model, args):
 
             for name, param in model.named_parameters():
                 if param.requires_grad:
-                    ma_dict.update(name, param.data)
+                    weight_dict.ema_update(name, param.data, decay_rate=args.moving_average_decay)
 
             if iter % args.validation_freq:
-                dev_loss, dev_f1, dev_em = validation(data, model, ma_dict, args)
+                dev_loss, dev_f1, dev_em = validation(data, model, weight_dict)
                 if dev_f1 > best_dev_f1:
                     best_dev_f1 = dev_f1
-                    best_dev_exact = dev_em
+                    best_dev_em = dev_em
                     best_model = deepcopy(model)
 
                 writer.add_scalar('Dev/Loss', dev_loss, iter)
@@ -80,11 +80,42 @@ def train(data, model, args):
     return best_model
 
 
-def validation(data, model, ma_dict, args):
+def validation(data, model, weight_dict):
+    backup_weight_dict = WeightDict()
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            backup_weight_dict.put(name, param.data)
+            param.data.copy_(weight_dict.get(name))
     model.eval()
 
+    predictions = dict()
+    criterion = nn.CrossEntropyLoss()
+    dev_loss = 0.0
     for batch in iter(data.dev_iter):
         p1, p2 = model(batch)
+        loss = criterion(p1, batch.p_begin) + criterion(p2, batch.p_end)
+        dev_loss += loss.item()
+
+        batch_size, x_len = p1.size()
+        mask = torch.triu(torch.ones(x_len, x_len)).unsqueeze(0).expand(batch_size, -1, -1)
+        prob = p1.unsqueeze(-1) * p2.unsqueeze(-2) * mask
+        prob, e_idx = prob.max(dim=2)
+        prob, s_idx = prob.max(dim=1)
+
+        for i in range(batch_size):
+            id = batch.id[i]
+            p_begin = s_idx[i].item()
+            p_end = e_idx[i][p_begin].item()
+            answer = batch.c_word[0][i][p_begin:p_end + 1]
+            answer = ' '.join([data.WORD.vocab.itos[idx] for idx in answer])
+            predictions[id] = answer
+
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            param.data.copy_(backup_weight_dict.get(name))
+
+    eval = evaluate.evaluate(data.dev_set, predictions)
+    return dev_loss, eval['f1'], eval['exact_match']
 
 
 def main():
@@ -130,4 +161,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    data = SQuAD()

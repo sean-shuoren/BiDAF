@@ -9,39 +9,45 @@ import spacy
 
 class SQuAD(object):
     def __init__(self, squad_version="1.1", word_vec_dim=100, train_batch_size=60, dev_batch_size=60, gpu=0):
-        train_file = f'train-v{squad_version}.json'
-        dev_file = f'dev-v{squad_version}.json'
-        raw_dir = os.path.join('data', 'raw')
-        processed_dir = os.path.join('data', 'processed')
-        if not os.path.exists(os.path.join(processed_dir, train_file)):
-            self.pre_process(raw_dir, train_file, processed_dir)
-        if not os.path.exists(os.path.join(processed_dir, dev_file)):
-            self.pre_process(raw_dir, dev_file, processed_dir)
+        self.train_file = f'train-v{squad_version}.json'
+        self.dev_file = f'dev-v{squad_version}.json'
+        self.raw_dir = os.path.join('data', 'raw')
+        self.processed_dir = os.path.join('data', 'processed')
 
+        # Prepocess json to json list
         self.spacy = spacy.load('en')
+        if not os.path.exists(os.path.join(self.processed_dir, self.train_file)):
+            self.pre_process(self.raw_dir, self.train_file, self.processed_dir)
+        if not os.path.exists(os.path.join(self.processed_dir, self.dev_file)):
+            self.pre_process(self.raw_dir, self.dev_file, self.processed_dir)
+
+        # Load data using torchtext
+        self.ID = data.RawField()
         self.CHAR_NESTING = data.Field(batch_first=True, lower=True, tokenize=list)
         self.CHAR = data.NestedField(self.CHAR_NESTING, tokenize=self.tokenizer)
         self.WORD = data.Field(batch_first=True, include_lengths=True, lower=True, tokenize=self.tokenizer)
         self.LABEL = data.Field(sequential=False, unk_token=None, use_vocab=False)
-
-        dict_fields = {'context': [('x_word', self.WORD), ('x_char', self.CHAR)],
+        dict_fields = {'id': ('id', self.ID),
+                       'context': [('x_word', self.WORD), ('x_char', self.CHAR)],
                        'query': [('q_word', self.WORD), ('q_char', self.CHAR)],
                        'p_begin': ('p_begin', self.LABEL),
                        'p_end': ('p_end', self.LABEL)}
-
-        train, dev = data.TabularDataset.splits(path=processed_dir,
-                                                train=train_file,
-                                                validation=dev_file,
+        train, dev = data.TabularDataset.splits(path=self.processed_dir,
+                                                train=self.train_file,
+                                                validation=self.dev_file,
                                                 format='json',
                                                 fields=dict_fields)
-
         self.CHAR.build_vocab(train, dev)
         self.WORD.build_vocab(train, dev, vectors=GloVe(name='6B', dim=word_vec_dim))
         self.train_iter, self.dev_iter = data.BucketIterator.splits(
             (train, dev),
             batch_sizes=[train_batch_size, dev_batch_size],
             device=gpu,
-            sort_key=lambda x: len(x.c_word))
+            sort_key=lambda x: len(x.x_word))
+
+        # Pre-load devset for validation
+        dev_set_file = open(os.path.join(self.raw_dir, self.dev_file))
+        self.dev_set = json.load(dev_set_file)['data']
 
     def tokenizer(self, text):
         return [t.text for t in self.spacy.tokenizer(text)]
@@ -56,6 +62,7 @@ class SQuAD(object):
                     context = paragraph['context']
                     tokens = self.tokenizer(context)
                     for qa in paragraph['qas']:
+                        id = qa['id']
                         question = qa['question']
                         for ans in qa['answers']:
                             s_idx = ans['answer_start']
@@ -79,10 +86,10 @@ class SQuAD(object):
                                     if p_begin == -1:
                                         p_begin = i
                                     break
-                            assert p_begin != -1 and p_end != -1
-                            out.append(dict([('context', context),
+                            out.append(dict([('id', id),
+                                             ('context', context),
                                              ('query', question),
-                                             ('answer', answer),
+                                             ('answer', ans['text']),
                                              ('p_begin', p_begin),
                                              ('p_end', p_end)]))
 
