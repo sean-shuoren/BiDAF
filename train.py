@@ -106,7 +106,7 @@ def validation(data, model, weight_dict):
             id = batch.id[i]
             p_begin = s_idx[i].item()
             p_end = e_idx[i][p_begin].item()
-            answer = batch.c_word[0][i][p_begin:p_end + 1]
+            answer = batch.x_word[0][i][p_begin:p_end + 1]
             answer = ' '.join([data.WORD.vocab.itos[idx] for idx in answer])
             predictions[id] = answer
 
