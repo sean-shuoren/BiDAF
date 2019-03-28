@@ -136,6 +136,7 @@ def main():
     parser.add_argument('--validation-freq', default=100, type=int)
     args = parser.parse_args()
 
+    print(f"Load SQuAD {args.squad_version}")
     data = SQuAD(squad_version=args.squad_version,
                  word_vec_dim=args.word_vec_dim,
                  train_batch_size=args.train_batch_size,
@@ -144,6 +145,7 @@ def main():
     setattr(args, 'char_vocab_size', len(data.CHAR_NESTING.vocab))
     setattr(args, 'word_vocab_size', len(data.WORD.vocab))
 
+    print(f"Load BiDAF Model")
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     model = BiDAF(pretrain_embedding=data.WORD.vocab.vectors,
                   char_vocab_size=len(data.CHAR_NESTING.vocab),
