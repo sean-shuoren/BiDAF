@@ -49,6 +49,7 @@ def train(device, model, data, args):
 
         batch_loss = 0.0
         for i, batch in enumerate(data.train_iter):
+            optimizer.zero_grad()
             p1, p2 = model(batch)
             loss = criterion(p1, batch.p_begin) + criterion(p2, batch.p_end)
             batch_loss += loss.item()
@@ -62,7 +63,9 @@ def train(device, model, data, args):
                     weight_dict.ema_update(name, param.data, decay_rate=args.moving_average_decay)
 
             if iter % args.validation_freq:
+                model.eval()
                 dev_loss, dev_f1, dev_em = validation(device, model, data, weight_dict)
+                model.train()
                 if dev_f1 > best_dev_f1:
                     best_dev_f1 = dev_f1
                     best_dev_em = dev_em
@@ -87,7 +90,6 @@ def validation(device, model, data, weight_dict):
         if param.requires_grad:
             backup_weight_dict.put(name, param.data)
             param.data.copy_(weight_dict.get(name))
-    model.eval()
 
     predictions = dict()
     criterion = nn.CrossEntropyLoss()
