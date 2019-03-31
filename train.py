@@ -140,6 +140,7 @@ def main():
     args = parser.parse_args()
 
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+    print("Device is set to", device)
 
     print(f"Load SQuAD {args.squad_version}")
     data = SQuAD(device=device,
