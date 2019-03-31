@@ -26,7 +26,8 @@ class WeightDict:
         self.weights_dict[name] += (1-decay_rate) * val.clone()
 
 
-def train(data, model, args):
+def train(device, model, data, args):
+    model = model.to(device)
     weight_dict = WeightDict()  # moving averages of all weights
     for name, param in model.named_parameters():
         if param.requires_grad:
@@ -61,7 +62,7 @@ def train(data, model, args):
                     weight_dict.ema_update(name, param.data, decay_rate=args.moving_average_decay)
 
             if iter % args.validation_freq:
-                dev_loss, dev_f1, dev_em = validation(data, model, weight_dict)
+                dev_loss, dev_f1, dev_em = validation(device, model, data, weight_dict)
                 if dev_f1 > best_dev_f1:
                     best_dev_f1 = dev_f1
                     best_dev_em = dev_em
@@ -80,7 +81,7 @@ def train(data, model, args):
     return best_model
 
 
-def validation(data, model, weight_dict):
+def validation(device, model, data, weight_dict):
     backup_weight_dict = WeightDict()
     for name, param in model.named_parameters():
         if param.requires_grad:
@@ -97,7 +98,7 @@ def validation(data, model, weight_dict):
         dev_loss += loss.item()
 
         batch_size, x_len = p1.size()
-        mask = torch.triu(torch.ones(x_len, x_len)).unsqueeze(0).expand(batch_size, -1, -1)
+        mask = torch.triu(torch.ones(x_len, x_len).to(device)).unsqueeze(0).expand(batch_size, -1, -1)
         prob = p1.unsqueeze(-1) * p2.unsqueeze(-2) * mask
         prob, e_idx = prob.max(dim=2)
         prob, s_idx = prob.max(dim=1)
@@ -136,17 +137,18 @@ def main():
     parser.add_argument('--validation-freq', default=100, type=int)
     args = parser.parse_args()
 
+    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+
     print(f"Load SQuAD {args.squad_version}")
-    data = SQuAD(squad_version=args.squad_version,
+    data = SQuAD(device=device,
+                 squad_version=args.squad_version,
                  word_vec_dim=args.word_vec_dim,
                  train_batch_size=args.train_batch_size,
-                 dev_batch_size=args.dev_batch_size,
-                 gpu=args.gpu)
+                 dev_batch_size=args.dev_batch_size)
     setattr(args, 'char_vocab_size', len(data.CHAR_NESTING.vocab))
     setattr(args, 'word_vocab_size', len(data.WORD.vocab))
 
     print(f"Load BiDAF Model")
-    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     model = BiDAF(pretrain_embedding=data.WORD.vocab.vectors,
                   char_vocab_size=len(data.CHAR_NESTING.vocab),
                   hidden_size=args.hidden_size,
@@ -154,9 +156,9 @@ def main():
                   char_channel_num=args.char_channel_num,
                   char_channel_width=args.char_channel_width,
                   dropout=args.dropout
-                  ).to(device)
+                  )
 
-    trained_model = train(data, model, args)
+    trained_model = train(device, model, data, args)
     if not os.path.exists('models'):
         os.makedirs('models')
     torch.save(trained_model.state_dict(), f'models/BiDAF_{args.model_time}.pt')

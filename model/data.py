@@ -8,7 +8,7 @@ import spacy
 
 
 class SQuAD(object):
-    def __init__(self, squad_version="1.1", word_vec_dim=100, train_batch_size=60, dev_batch_size=60, gpu=0):
+    def __init__(self, device, squad_version="1.1", word_vec_dim=100, train_batch_size=60, dev_batch_size=60):
         self.train_file = f'train-v{squad_version}.json'
         self.dev_file = f'dev-v{squad_version}.json'
         self.raw_dir = os.path.join('data', 'raw')
@@ -42,7 +42,7 @@ class SQuAD(object):
         self.train_iter, self.dev_iter = data.BucketIterator.splits(
             (train, dev),
             batch_sizes=[train_batch_size, dev_batch_size],
-            device=gpu,
+            device=device,
             sort_key=lambda x: len(x.x_word))
 
         # Pre-load devset for validation
