@@ -26,15 +26,14 @@ class WeightDict:
         self.weights_dict[name] += (1-decay_rate) * val.clone()
 
 
-def train(device, model, data, args):
+def train(device, model, data, epoch=12, lr=0.5, moving_average_decay=0.999, validation_freq=100):
     model = model.to(device)
     weight_dict = WeightDict()  # moving averages of all weights
     for name, param in model.named_parameters():
         if param.requires_grad:
             weight_dict.put(name, param.data)
 
-    optimizer = optim.Adagrad(filter(lambda p: p.requires_grad, model.parameters()),
-                              lr=args.learning_rate)
+    optimizer = optim.Adagrad(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
     criterion = nn.CrossEntropyLoss()
     model.train()
 
@@ -42,7 +41,7 @@ def train(device, model, data, args):
     best_dev_f1 = 0
     best_dev_em = 0
     iter = 0
-    for i_epoch in range(args.epoch):
+    for i_epoch in range(epoch):
         print(f'Epoch {i_epoch}')
         data.train_iter.init_epoch()
         epoch_loss = 0.0
@@ -60,9 +59,9 @@ def train(device, model, data, args):
 
             for name, param in model.named_parameters():
                 if param.requires_grad:
-                    weight_dict.ema_update(name, param.data, decay_rate=args.moving_average_decay)
+                    weight_dict.ema_update(name, param.data, decay_rate=moving_average_decay)
 
-            if iter % args.validation_freq:
+            if iter % validation_freq:
                 model.eval()
                 dev_loss, dev_f1, dev_em = validation(device, model, data, weight_dict)
                 model.train()
@@ -158,10 +157,16 @@ def main():
                   char_emb_dim=args.char_emb_dim,
                   char_channel_num=args.char_channel_num,
                   char_channel_width=args.char_channel_width,
-                  dropout=args.dropout
-                  )
+                  dropout=args.dropout)
 
-    trained_model = train(device, model, data, args)
+    print(f"Training start")
+    trained_model = train(device=device,
+                          model=model,
+                          data=data,
+                          epoch=args.epoch,
+                          lr=args.learning_rate,
+                          moving_average_decay=args.moving_average_decay,
+                          validation_freq=args.validation_freq)
     if not os.path.exists('models'):
         os.makedirs('models')
     torch.save(trained_model.state_dict(), f'models/BiDAF_{args.model_time}.pt')
