@@ -43,8 +43,7 @@ class SQuAD(object):
             (self.train, self.dev),
             batch_sizes=[train_batch_size, dev_batch_size],
             device=device,
-            sort_key=lambda x: len(x.x_word),
-            sort_within_batch=True)
+            sort_key=lambda x: len(x.x_word))
 
         # Pre-load devset for validation
         dev_set_file = open(os.path.join(self.raw_dir, self.dev_file))

@@ -70,7 +70,14 @@ class SingleLayerLSTM(nn.Module):
 
     def forward(self, x, x_len):
         x = self.dropout(x)
-        x = nn.utils.rnn.pack_padded_sequence(x, x_len, batch_first=True)
-        x, _ = self.lstm(x, None)
-        x, _ = nn.utils.rnn.pad_packed_sequence(x, batch_first=True)
+
+        sorted_x_len, x_idx = torch.sort(x_len, descending=True)
+        sorted_x = x.index_select(dim=0, index=x_idx)
+        _, x_ori_idx = torch.sort(x_idx)
+
+        x_packed = nn.utils.rnn.pack_padded_sequence(sorted_x, sorted_x_len, batch_first=True)
+        x_packed, _ = self.lstm(x_packed, None)
+
+        x, _ = nn.utils.rnn.pad_packed_sequence(x_packed, batch_first=True)
+        x = x.index_select(dim=0, index=x_ori_idx)
         return x
