@@ -33,7 +33,7 @@ def train(device, model, data, epoch=12, lr=0.5, moving_average_decay=0.999, val
         if param.requires_grad:
             weight_dict.put(name, param.data)
 
-    optimizer = optim.Adagrad(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
+    optimizer = optim.Adadelta(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
     criterion = nn.CrossEntropyLoss()
     model.train()
 
