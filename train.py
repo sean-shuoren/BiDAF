@@ -116,7 +116,7 @@ def validation(device, model, data, weight_dict):
         if param.requires_grad:
             param.data.copy_(backup_weight_dict.get(name))
 
-    eval = evaluate.evaluate(data.dev_set, predictions)
+    eval = evaluate.evaluate(data.validation_dev_set, predictions)
     return dev_loss, eval['f1'], eval['exact_match']
 
 

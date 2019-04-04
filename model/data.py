@@ -27,27 +27,28 @@ class SQuAD(object):
         self.CHAR = data.NestedField(self.CHAR_NESTING, tokenize=self.tokenizer)
         self.WORD = data.Field(batch_first=True, include_lengths=True, lower=True, tokenize=self.tokenizer)
         self.LABEL = data.Field(sequential=False, unk_token=None, use_vocab=False)
-        dict_fields = {'id': ('id', self.ID),
+        self.fields = {'id': ('id', self.ID),
                        'context': [('x_word', self.WORD), ('x_char', self.CHAR)],
                        'query': [('q_word', self.WORD), ('q_char', self.CHAR)],
                        'p_begin': ('p_begin', self.LABEL),
                        'p_end': ('p_end', self.LABEL)}
-        train, dev = data.TabularDataset.splits(path=self.processed_dir,
-                                                train=self.train_file,
-                                                validation=self.dev_file,
-                                                format='json',
-                                                fields=dict_fields)
-        self.CHAR.build_vocab(train, dev)
-        self.WORD.build_vocab(train, dev, vectors=GloVe(name='6B', dim=word_vec_dim))
+        self.train, self.dev = data.TabularDataset.splits(path=self.processed_dir,
+                                                          train=self.train_file,
+                                                          validation=self.dev_file,
+                                                          format='json',
+                                                          fields=self.fields)
+        self.CHAR.build_vocab(self.train, self.dev)
+        self.WORD.build_vocab(self.train, self.dev, vectors=GloVe(name='6B', dim=word_vec_dim))
         self.train_iter, self.dev_iter = data.BucketIterator.splits(
-            (train, dev),
+            (self.train, self.dev),
             batch_sizes=[train_batch_size, dev_batch_size],
             device=device,
-            sort_key=lambda x: len(x.x_word))
+            sort_key=lambda x: len(x.x_word),
+            sort_within_batch=True)
 
         # Pre-load devset for validation
         dev_set_file = open(os.path.join(self.raw_dir, self.dev_file))
-        self.dev_set = json.load(dev_set_file)['data']
+        self.validation_dev_set = json.load(dev_set_file)['data']
 
     def tokenizer(self, text):
         return [t.text for t in self.spacy.tokenizer(text)]
