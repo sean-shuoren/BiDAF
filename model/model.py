@@ -41,8 +41,8 @@ class BiDAF(nn.Module):
     def bidaf(self, h, u):
         t = h.size(1)  # x_len
         j = u.size(1)  # q_len
-        hh = h.unsqueeze(2).repeat(1, 1, j, 1)  # (batch, x_len, q_len, hidden*2)
-        uu = u.unsqueeze(1).repeat(1, t, 1, 1)  # (batch, x_len, q_len, hidden*2)
+        hh = h.unsqueeze(2).expand(-1, -1, j, -1)  # (batch, x_len, q_len, hidden*2)
+        uu = u.unsqueeze(1).expand(-1, t, -1, -1)  # (batch, x_len, q_len, hidden*2)
         s = self.ws_h(hh) + self.ws_u(uu) + self.ws_hu(hh * uu)  # (batch, x_len, q_len)
         s = s.squeeze()
 
@@ -53,6 +53,7 @@ class BiDAF(nn.Module):
         q2c_att = torch.bmm(b, h).squeeze()                        # (batch, hidden*2)
         q2c_att = q2c_att.unsqueeze(1).repeat(1, t, 1)             # (batch, x_len, hidden*2)
 
+        del s, a, b
         return torch.cat((h, c2q_att, h * c2q_att, h * q2c_att), dim=-1)
 
     def forward(self, batch):
@@ -67,13 +68,16 @@ class BiDAF(nn.Module):
         q_lens = batch.q_word[1]
         x = self.highway(x_char_emb, x_word_emb)
         q = self.highway(q_char_emb, q_word_emb)
+        del x_char_emb, q_char_emb, x_word_emb, q_word_emb
 
         # Contextual Embedding Layer
         h = self.contextual_emb(x, x_lens)
         u = self.contextual_emb(q, q_lens)
+        del x, q
 
         # Attention Flow Layer
         g = self.bidaf(h, u)
+        del h, u
 
         # Modeling Layer
         m = self.modeling_lstm_1(g, x_lens)
@@ -85,4 +89,6 @@ class BiDAF(nn.Module):
         m2 = self.output_lstm(m, x_lens)
         p2 = (self.wp2_g(g) + self.wp2_m(m2)).squeeze()
         p2 = F.softmax(p2, dim=-1)
+        del g, m, m2
+
         return p1, p2
