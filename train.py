@@ -61,7 +61,7 @@ def train(device, model, data, epoch=12, lr=0.5, moving_average_decay=0.999, val
                 if param.requires_grad:
                     weight_dict.ema_update(name, param.data, decay_rate=moving_average_decay)
 
-            if iter % validation_freq:
+            if iter % validation_freq == 0:
                 model.eval()
                 dev_loss, dev_f1, dev_em = validation(device, model, data, weight_dict)
                 model.train()
