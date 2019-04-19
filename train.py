@@ -1,5 +1,6 @@
 import os
-import argparse
+import time
+import argparse, ast
 from copy import deepcopy
 
 import torch
@@ -26,8 +27,11 @@ class WeightDict:
         self.weights_dict[name] += (1-decay_rate) * val.clone()
 
 
-def train(device, model, data, epoch=12, lr=0.5, moving_average_decay=0.999, validation_freq=100):
+def train(device, data, model, float16=False, epoch=12, lr=0.5, moving_average_decay=0.999, validation_freq=100):
+    if float16:
+        model.half()
     model = model.to(device)
+
     weight_dict = WeightDict()  # moving averages of all weights
     for name, param in model.named_parameters():
         if param.requires_grad:
@@ -40,41 +44,49 @@ def train(device, model, data, epoch=12, lr=0.5, moving_average_decay=0.999, val
     writer = SummaryWriter('log')
     best_dev_f1 = 0
     best_dev_em = 0
-    iter = 0
+    iteration = 0
+    last_iter = 0
     for i_epoch in range(epoch):
         print(f'Epoch {i_epoch}')
         data.train_iter.init_epoch()
         epoch_loss = 0.0
 
         batch_loss = 0.0
-        for i, batch in enumerate(data.train_iter):
+        for batch in iter(data.train_iter):
             optimizer.zero_grad()
             p1, p2 = model(batch)
             loss = criterion(p1, batch.p_begin) + criterion(p2, batch.p_end)
-            batch_loss += loss.item()
-            epoch_loss += loss.item()
             loss.backward()
             optimizer.step()
-            iter += 1
+
+            iteration += 1
+            batch_loss += loss.item()
+            epoch_loss += loss.item()
 
             for name, param in model.named_parameters():
                 if param.requires_grad:
                     weight_dict.ema_update(name, param.data, decay_rate=moving_average_decay)
 
-            if iter % validation_freq == 0:
+            if iteration % validation_freq == 0:
                 model.eval()
-                dev_loss, dev_f1, dev_em = validation(device, model, data, weight_dict)
+                with torch.no_grad():
+                    dev_loss, dev_f1, dev_em = validation(device=device,
+                                                          data=data,
+                                                          model=model,
+                                                          weight_dict=weight_dict,
+                                                          float16=float16)
                 model.train()
                 if dev_f1 > best_dev_f1:
                     best_dev_f1 = dev_f1
                     best_dev_em = dev_em
                     best_model = deepcopy(model)
-
-                writer.add_scalar('Dev/Loss', dev_loss, iter)
-                writer.add_scalar('Dev/EM', dev_em, iter)
-                writer.add_scalar('Dev/F1', dev_f1, iter)
-                writer.add_scalar('Train/Loss', batch_loss, iter)
+                writer.add_scalar('Dev/Loss', dev_loss, iteration)
+                writer.add_scalar('Dev/EM', dev_em, iteration)
+                writer.add_scalar('Dev/F1', dev_f1, iteration)
+                writer.add_scalar('Train/Loss', batch_loss/(iteration-last_iter), iteration)
+                print(f"Iteration {iteration}, Train Loss {batch_loss}, Dev Loss {dev_loss}")
                 batch_loss = 0.0
+                last_iter = iteration
 
         print(f"Total epoch loss {epoch_loss}")
 
@@ -83,7 +95,7 @@ def train(device, model, data, epoch=12, lr=0.5, moving_average_decay=0.999, val
     return best_model
 
 
-def validation(device, model, data, weight_dict):
+def validation(device, data, model, weight_dict, float16=False):
     backup_weight_dict = WeightDict()
     for name, param in model.named_parameters():
         if param.requires_grad:
@@ -98,12 +110,16 @@ def validation(device, model, data, weight_dict):
         loss = criterion(p1, batch.p_begin) + criterion(p2, batch.p_end)
         dev_loss += loss.item()
 
+        # Prepare answers
         batch_size, x_len = p1.size()
-        mask = torch.triu(torch.ones(x_len, x_len).to(device)).unsqueeze(0).expand(batch_size, -1, -1)
+        mask = torch.triu(torch.ones(x_len, x_len)).unsqueeze(0).expand(batch_size, -1, -1)
+        if float16:
+            mask = mask.to(torch.float16)
+        mask = mask.to(device)
+
         prob = p1.unsqueeze(-1) * p2.unsqueeze(-2) * mask
         prob, e_idx = prob.max(dim=2)
         prob, s_idx = prob.max(dim=1)
-
         for i in range(batch_size):
             id = batch.id[i]
             p_begin = s_idx[i].item()
@@ -126,6 +142,9 @@ def main():
     parser.add_argument('--char-channel-width', default=5, type=int)
     parser.add_argument('--char-channel-num', default=100, type=int)
     parser.add_argument('--dev-batch-size', default=60, type=int)
+    parser.add_argument('--disable-c2q', type=ast.literal_eval)
+    parser.add_argument('--disable-q2c', type=ast.literal_eval)
+    parser.add_argument('--float16', type=ast.literal_eval)
     parser.add_argument('--dropout', default=0.2, type=float)
     parser.add_argument('--epoch', default=12, type=int)
     parser.add_argument('--gpu', default=0, type=int)
@@ -153,6 +172,8 @@ def main():
     print(f"Load BiDAF Model")
     model = BiDAF(pretrain_embedding=data.WORD.vocab.vectors,
                   char_vocab_size=len(data.CHAR_NESTING.vocab),
+                  enable_c2q= not args.disable_c2q if args.disable_c2q is not None else True,
+                  enable_q2c= not args.disable_q2c if args.disable_q2c is not None else True,
                   hidden_size=args.hidden_size,
                   char_emb_dim=args.char_emb_dim,
                   char_channel_num=args.char_channel_num,
@@ -161,15 +182,17 @@ def main():
 
     print(f"Training start")
     trained_model = train(device=device,
-                          model=model,
                           data=data,
+                          model=model,
+                          float16=args.float16 if args.float16 is not None else False,
                           epoch=args.epoch,
                           lr=args.learning_rate,
                           moving_average_decay=args.moving_average_decay,
                           validation_freq=args.validation_freq)
+    model_time = int(time.time())
     if not os.path.exists('models'):
         os.makedirs('models')
-    torch.save(trained_model.state_dict(), f'models/BiDAF_{args.model_time}.pt')
+    torch.save(trained_model.state_dict(), f'trained_models/BiDAF_{model_time}.pt')
 
 
 if __name__ == "__main__":

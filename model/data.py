@@ -9,8 +9,9 @@ import spacy
 
 class SQuAD(object):
     def __init__(self, device, squad_version="1.1", word_vec_dim=100, train_batch_size=60, dev_batch_size=60):
-        self.train_file = f'train-v{squad_version}.json'
-        self.dev_file = f'dev-v{squad_version}.json'
+        self.version = squad_version
+        self.train_file = f'train-v{self.version}.json'
+        self.dev_file = f'dev-v{self.version}.json'
         self.raw_dir = os.path.join('data', 'raw')
         self.processed_dir = os.path.join('data', 'processed')
 
@@ -86,12 +87,29 @@ class SQuAD(object):
                                     if p_begin == -1:
                                         p_begin = i
                                     break
+                            if self.version == '1.1':
+                                out.append(dict([('id', id),
+                                                 ('context', context),
+                                                 ('query', question),
+                                                 ('answer', ans['text']),
+                                                 ('p_begin', p_begin),
+                                                 ('p_end', p_end)]))
+                            elif self.version == '2.0':
+                                out.append(dict([('id', id),
+                                                 ('context', context),
+                                                 ('query', question),
+                                                 ('answer', ans['text']),
+                                                 ('p_begin', p_begin),
+                                                 ('p_end', p_end),
+                                                 ('not_answerable', False)]))
+                        if len(qa['answers']) == 0 and self.version == '2.0':
                             out.append(dict([('id', id),
                                              ('context', context),
                                              ('query', question),
-                                             ('answer', ans['text']),
-                                             ('p_begin', p_begin),
-                                             ('p_end', p_end)]))
+                                             ('answer', ''),
+                                             ('p_begin', 0),
+                                             ('p_end', len(tokens) - 1),
+                                             ('not_answerable', True)]))
 
         out_filename = os.path.join(output_dir, input_file)
         with open(out_filename, 'w', encoding='utf-8') as f:
