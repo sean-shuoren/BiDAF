@@ -107,8 +107,8 @@ class SQuAD(object):
                                              ('context', context),
                                              ('query', question),
                                              ('answer', ''),
-                                             ('p_begin', 0),
-                                             ('p_end', len(tokens) - 1),
+                                             ('p_begin', len(tokens)),
+                                             ('p_end', len(tokens)),
                                              ('not_answerable', True)]))
 
         out_filename = os.path.join(output_dir, input_file)

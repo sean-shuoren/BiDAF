@@ -71,8 +71,7 @@ def evaluate(dataset, predictions):
 
     exact_match = 100.0 * exact_match / total
     f1 = 100.0 * f1 / total
-
-    return {'exact_match': exact_match, 'f1': f1}
+    return {'exact': exact_match, 'f1': f1}
 
 
 if __name__ == '__main__':

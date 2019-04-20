@@ -6,7 +6,7 @@ from model.util import Linear, CharCNN, HighwayMLP, SingleLayerLSTM
 
 
 class BiDAF(nn.Module):
-    def __init__(self, pretrain_embedding, char_vocab_size, enable_c2q=True, enable_q2c=True,
+    def __init__(self, pretrain_embedding, char_vocab_size, consider_na=False, enable_c2q=True, enable_q2c=True,
                  hidden_size=100, char_emb_dim=8, char_channel_num=100, char_channel_width=5, dropout=0.2):
         super(BiDAF, self).__init__()
         assert enable_c2q or enable_q2c, "c2q attention and q2c attention cannot both be disabled"
@@ -48,6 +48,10 @@ class BiDAF(nn.Module):
         self.wp1_m = Linear(hidden_size * 2, 1, dropout=dropout)
         self.wp2_g = Linear(hidden_size * self.g_dim, 1, dropout=dropout)
         self.wp2_m = Linear(hidden_size * 2, 1, dropout=dropout)
+        # Consider non-answerable cases
+        self.consider_na = consider_na
+        if consider_na:
+            self.na_bias = torch.tensor([[1.0]])
 
     def bidaf(self, h, u):
         t = h.size(1)  # x_len, h: (batch, x_len, hidden*2)
@@ -101,4 +105,9 @@ class BiDAF(nn.Module):
         m2 = self.output_lstm(m, x_lens)
         p2 = (self.wp2_g(g) + self.wp2_m(m2)).squeeze()
         del g, m, m2
+        # Add NA bias
+        if self.consider_na:
+            batch_size = len(batch)
+            p1 = torch.cat([p1, self.na_bias.expand(batch_size, -1)], dim=-1)
+            p2 = torch.cat([p2, self.na_bias.expand(batch_size, -1)], dim=-1)
         return p1, p2

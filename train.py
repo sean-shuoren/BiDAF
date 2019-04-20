@@ -7,7 +7,7 @@ import torch
 from torch import nn, optim
 from tensorboardX import SummaryWriter
 
-import evaluate
+import evaluate, evaluate2
 from model.data import SQuAD
 from model.model import BiDAF
 
@@ -27,7 +27,7 @@ class WeightDict:
         self.weights_dict[name] += (1-decay_rate) * val.clone()
 
 
-def train(device, data, model, float16=False, epoch=12, lr=0.5, moving_average_decay=0.999, validation_freq=100):
+def train(device, data, model, float16=False, epoch=12, lr=0.5, moving_average_decay=0.999, validation_freq=500):
     if float16:
         model.half()
     model = model.to(device)
@@ -103,6 +103,8 @@ def validation(device, data, model, weight_dict, float16=False):
             param.data.copy_(weight_dict.get(name))
 
     predictions = dict()
+    if data.version == "2.0":
+        na_probs = dict()
     criterion = nn.CrossEntropyLoss()
     dev_loss = 0.0
     for batch in iter(data.dev_iter):
@@ -127,13 +129,18 @@ def validation(device, data, model, weight_dict, float16=False):
             answer = batch.x_word[0][i][p_begin:p_end + 1]
             answer = ' '.join([data.WORD.vocab.itos[idx] for idx in answer])
             predictions[id] = answer
+            if data.version == "2.0":
+                na_probs[id] = F.softmax(p1[i], dim=-1)[-1].item() * F.softmax(p2[i], dim=-1)[-1].item()
 
     for name, param in model.named_parameters():
         if param.requires_grad:
             param.data.copy_(backup_weight_dict.get(name))
 
-    eval = evaluate.evaluate(data.validation_dev_set, predictions)
-    return dev_loss, eval['f1'], eval['exact_match']
+    if data.version == "1.1":
+        eval = evaluate.evaluate(data.validation_dev_set, predictions)
+    elif data.version == "2.0":
+        eval = evaluate2.evaluate(data.validation_dev_set, predictions, na_probs)
+    return dev_loss, eval['f1'], eval['exact']
 
 
 def main():
@@ -154,7 +161,7 @@ def main():
     parser.add_argument('--squad-version', default='1.1')
     parser.add_argument('--train-batch-size', default=60, type=int)
     parser.add_argument('--word-vec-dim', default=100, type=int)
-    parser.add_argument('--validation-freq', default=100, type=int)
+    parser.add_argument('--validation-freq', default=500, type=int)
     args = parser.parse_args()
 
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
@@ -172,6 +179,7 @@ def main():
     print(f"Load BiDAF Model")
     model = BiDAF(pretrain_embedding=data.WORD.vocab.vectors,
                   char_vocab_size=len(data.CHAR_NESTING.vocab),
+                  consider_na=True if args.squad_version == "2.0" else False,
                   enable_c2q= not args.disable_c2q if args.disable_c2q is not None else True,
                   enable_q2c= not args.disable_q2c if args.disable_q2c is not None else True,
                   hidden_size=args.hidden_size,

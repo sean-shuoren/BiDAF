@@ -1,9 +1,13 @@
-"""Official evaluation script for SQuAD version 2.0.
+"""
+Slightly modified version of the Official evaluation script for SQuAD version 2.0.
 
 In addition to basic functionality, we also compute additional statistics and
 plot precision-recall curves if an additional na_prob.json file is provided.
 This file is expected to map question ID's to the model's predicted probability
 that a question is unanswerable.
+
+Add an evaluate interface to be called from the train.py script
+
 """
 import argparse
 import collections
@@ -228,7 +232,35 @@ def find_all_best_thresh(main_eval, preds, exact_raw, f1_raw, na_probs, qid_to_h
   main_eval['best_f1'] = best_f1
   main_eval['best_f1_thresh'] = f1_thresh
 
-def main():
+def evaluate(dataset, preds, na_probs, na_prob_thresh=0.5, pr_analysis=False, out_image_dir="images"):
+  qid_to_has_ans = make_qid_to_has_ans(dataset)  # maps qid to True/False
+  has_ans_qids = [k for k, v in qid_to_has_ans.items() if v]
+  no_ans_qids = [k for k, v in qid_to_has_ans.items() if not v]
+  exact_raw, f1_raw = get_raw_scores(dataset, preds)
+  exact_thresh = apply_no_ans_threshold(exact_raw, na_probs, qid_to_has_ans, na_prob_thresh)
+  f1_thresh = apply_no_ans_threshold(f1_raw, na_probs, qid_to_has_ans, na_prob_thresh)
+  out_eval = make_eval_dict(exact_thresh, f1_thresh)
+  if has_ans_qids:
+    has_ans_eval = make_eval_dict(exact_thresh, f1_thresh, qid_list=has_ans_qids)
+    merge_eval(out_eval, has_ans_eval, 'HasAns')
+  if no_ans_qids:
+    no_ans_eval = make_eval_dict(exact_thresh, f1_thresh, qid_list=no_ans_qids)
+    merge_eval(out_eval, no_ans_eval, 'NoAns')
+  find_all_best_thresh(out_eval, preds, exact_raw, f1_raw, na_probs, qid_to_has_ans)
+  if pr_analysis:
+    run_precision_recall_analysis(out_eval, exact_raw, f1_raw, na_probs,
+                                  qid_to_has_ans, out_image_dir)
+    histogram_na_prob(na_probs, has_ans_qids, out_image_dir, 'hasAns')
+    histogram_na_prob(na_probs, no_ans_qids, out_image_dir, 'noAns')
+  return out_eval
+
+if __name__ == '__main__':
+  OPTS = parse_args()
+  if OPTS.out_image_dir:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
   with open(OPTS.data_file) as f:
     dataset_json = json.load(f)
     dataset = dataset_json['data']
@@ -239,38 +271,4 @@ def main():
       na_probs = json.load(f)
   else:
     na_probs = {k: 0.0 for k in preds}
-  qid_to_has_ans = make_qid_to_has_ans(dataset)  # maps qid to True/False
-  has_ans_qids = [k for k, v in qid_to_has_ans.items() if v]
-  no_ans_qids = [k for k, v in qid_to_has_ans.items() if not v]
-  exact_raw, f1_raw = get_raw_scores(dataset, preds)
-  exact_thresh = apply_no_ans_threshold(exact_raw, na_probs, qid_to_has_ans,
-                                        OPTS.na_prob_thresh)
-  f1_thresh = apply_no_ans_threshold(f1_raw, na_probs, qid_to_has_ans,
-                                     OPTS.na_prob_thresh)
-  out_eval = make_eval_dict(exact_thresh, f1_thresh)
-  if has_ans_qids:
-    has_ans_eval = make_eval_dict(exact_thresh, f1_thresh, qid_list=has_ans_qids)
-    merge_eval(out_eval, has_ans_eval, 'HasAns')
-  if no_ans_qids:
-    no_ans_eval = make_eval_dict(exact_thresh, f1_thresh, qid_list=no_ans_qids)
-    merge_eval(out_eval, no_ans_eval, 'NoAns')
-  if OPTS.na_prob_file:
-    find_all_best_thresh(out_eval, preds, exact_raw, f1_raw, na_probs, qid_to_has_ans)
-  if OPTS.na_prob_file and OPTS.out_image_dir:
-    run_precision_recall_analysis(out_eval, exact_raw, f1_raw, na_probs,
-                                  qid_to_has_ans, OPTS.out_image_dir)
-    histogram_na_prob(na_probs, has_ans_qids, OPTS.out_image_dir, 'hasAns')
-    histogram_na_prob(na_probs, no_ans_qids, OPTS.out_image_dir, 'noAns')
-  if OPTS.out_file:
-    with open(OPTS.out_file, 'w') as f:
-      json.dump(out_eval, f)
-  else:
-    print(json.dumps(out_eval, indent=2))
-
-if __name__ == '__main__':
-  OPTS = parse_args()
-  if OPTS.out_image_dir:
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-  main()
+  evaluate(dataset, preds, na_probs, OPTS.na_prob_thresh, OPTS.out_image_dir)
