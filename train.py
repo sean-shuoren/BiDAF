@@ -4,7 +4,8 @@ import argparse, ast
 from copy import deepcopy
 
 import torch
-from torch import nn, optim
+import torch.nn as nn
+import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 
 import evaluate, evaluate2
@@ -37,7 +38,7 @@ def train(device, data, model, float16=False, epoch=12, lr=0.5, moving_average_d
         if param.requires_grad:
             weight_dict.put(name, param.data)
 
-    optimizer = optim.Adadelta(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
+    optimizer = torch.optim.Adadelta(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
     criterion = nn.CrossEntropyLoss()
     model.train()
 
