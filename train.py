@@ -28,9 +28,7 @@ class WeightDict:
         self.weights_dict[name] += (1-decay_rate) * val.clone()
 
 
-def train(device, data, model, float16=False, epoch=12, lr=0.5, moving_average_decay=0.999, validation_freq=500):
-    if float16:
-        model.half()
+def train(device, data, model, epoch=12, lr=0.5, moving_average_decay=0.999, validation_freq=500):
     model = model.to(device)
 
     weight_dict = WeightDict()  # moving averages of all weights
@@ -74,8 +72,7 @@ def train(device, data, model, float16=False, epoch=12, lr=0.5, moving_average_d
                     dev_loss, dev_f1, dev_em = validation(device=device,
                                                           data=data,
                                                           model=model,
-                                                          weight_dict=weight_dict,
-                                                          float16=float16)
+                                                          weight_dict=weight_dict)
                 model.train()
                 if dev_f1 > best_dev_f1:
                     best_dev_f1 = dev_f1
@@ -98,7 +95,7 @@ def train(device, data, model, float16=False, epoch=12, lr=0.5, moving_average_d
     return best_model
 
 
-def validation(device, data, model, weight_dict, float16=False):
+def validation(device, data, model, weight_dict):
     backup_weight_dict = WeightDict()
     for name, param in model.named_parameters():
         if param.requires_grad:
@@ -118,8 +115,6 @@ def validation(device, data, model, weight_dict, float16=False):
         # Prepare answers
         batch_size, x_len = p1.size()
         mask = torch.triu(torch.ones(x_len, x_len)).unsqueeze(0).expand(batch_size, -1, -1)
-        if float16:
-            mask = mask.to(torch.float16)
         mask = mask.to(device)
 
         prob = p1.unsqueeze(-1) * p2.unsqueeze(-2) * mask
@@ -154,7 +149,6 @@ def main():
     parser.add_argument('--dev-batch-size', default=60, type=int)
     parser.add_argument('--disable-c2q', type=ast.literal_eval)
     parser.add_argument('--disable-q2c', type=ast.literal_eval)
-    parser.add_argument('--float16', type=ast.literal_eval)
     parser.add_argument('--dropout', default=0.2, type=float)
     parser.add_argument('--epoch', default=12, type=int)
     parser.add_argument('--gpu', default=0, type=int)
@@ -195,7 +189,6 @@ def main():
     trained_model = train(device=device,
                           data=data,
                           model=model,
-                          float16=args.float16 if args.float16 is not None else False,
                           epoch=args.epoch,
                           lr=args.learning_rate,
                           moving_average_decay=args.moving_average_decay,
