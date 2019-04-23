@@ -1,6 +1,14 @@
-### A re-implementation of Bidirectional Attention Flow for Machine Comprehension (BiDAF).
+# A re-implementation of Bidirectional Attention Flow for Machine Comprehension (BiDAF).
 
-Environment:
+### Performance
+|                |  EM  |  F1  |
+|:--------------:|:----:|:----:|
+| Original BiDAF | 67.7 | 77.3 |
+|   Replication  | 61.0 | 72.7 |
+
+I had to decrease the batch size from 60 to 12 when training on my machine. This hurts perforance.
+
+### Environment
 ```
 Python 3.6.7
 Pytorch 1.0.1
@@ -9,7 +17,7 @@ TensorBoardX
 jq  # formating json file
 ```
 
-Usage:
+### Usage
 ```
 $ ./data/download_squad.sh  # download datasets
 $ python train.py
