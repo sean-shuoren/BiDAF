@@ -51,7 +51,8 @@ class BiDAF(nn.Module):
         # Consider non-answerable cases
         self.consider_na = consider_na
         if consider_na:
-            self.na_bias = torch.nn.Parameter(torch.tensor([[1.0]]))
+            self.na_bias_1 = torch.nn.Parameter(torch.tensor([[1.0]]))
+            self.na_bias_2 = torch.nn.Parameter(torch.tensor([[1.0]]))
 
     def bidaf(self, h, u):
         t = h.size(1)  # x_len, h: (batch, x_len, hidden*2)
@@ -108,6 +109,6 @@ class BiDAF(nn.Module):
         # Add NA bias
         if self.consider_na:
             batch_size = len(batch)
-            p1 = torch.cat([p1, self.na_bias.expand(batch_size, -1)], dim=-1)
-            p2 = torch.cat([p2, self.na_bias.expand(batch_size, -1)], dim=-1)
+            p1 = torch.cat([p1, self.na_bias_1.expand(batch_size, -1)], dim=-1)
+            p2 = torch.cat([p2, self.na_bias_2.expand(batch_size, -1)], dim=-1)
         return p1, p2

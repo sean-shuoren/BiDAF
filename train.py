@@ -81,6 +81,8 @@ def train(device, data, model, float16=False, epoch=12, lr=0.5, moving_average_d
                     best_dev_f1 = dev_f1
                     best_dev_em = dev_em
                     best_model = deepcopy(model)
+                writer.add_scalar('Model/Bias1', model.na_bias_1.item(), iteration)
+                writer.add_scalar('Model/Bias2', model.na_bias_2.item(), iteration)
                 writer.add_scalar('Dev/Loss', dev_loss, iteration)
                 writer.add_scalar('Dev/EM', dev_em, iteration)
                 writer.add_scalar('Dev/F1', dev_f1, iteration)
