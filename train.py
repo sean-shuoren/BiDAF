@@ -114,7 +114,11 @@ def validation(device, data, model, weight_dict):
 
         # Prepare answers
         batch_size, x_len = p1.size()
-        mask = torch.triu(torch.ones(x_len, x_len)).unsqueeze(0).expand(batch_size, -1, -1)
+        if data.version == "1.1":
+            mask = torch.triu(torch.ones(x_len, x_len))
+        else:
+            mask = torch.cat([torch.triu(torch.ones(x_len, x_len-1)), torch.zeros(x_len, 1)], dim=-1)
+        mask = mask.unsqueeze(0).expand(batch_size, -1, -1)
         mask = mask.to(device)
 
         prob = p1.unsqueeze(-1) * p2.unsqueeze(-2) * mask
